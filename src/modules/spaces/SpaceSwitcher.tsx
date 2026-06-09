@@ -186,21 +186,16 @@ export function SpaceSwitcher({
         <button
           type="button"
           title={shortcut ? `Spaces · ${shortcut}` : "Spaces"}
-          className="flex h-7 shrink-0 items-center gap-2 rounded-md px-2 text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground"
+          className="flex h-7 shrink-0 items-center gap-2 rounded-md px-2 text-muted-foreground/90 outline-none transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground"
         >
-          <span
-            aria-hidden
-            className="size-2 shrink-0 rounded-full"
-            style={{ backgroundColor: accentFor(current) }}
-          />
           <span className="max-w-36 truncate text-xs font-medium">
             {current.name}
           </span>
           <HugeiconsIcon
-            icon={ArrowDown01Icon}
-            size={13}
+            icon={ArrowRight01Icon}
+            size={14}
             strokeWidth={1.75}
-            className="shrink-0 opacity-60"
+            className="shrink-0 opacity-65"
           />
         </button>
       </PopoverTrigger>
