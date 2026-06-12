@@ -106,6 +106,16 @@ fn apply_common(cmd: &mut CommandBuilder, cwd: Option<String>, blocks: bool) {
     if blocks {
         cmd.env("TERAX_BLOCKS", "1");
     }
+    for (key, value) in workspace::appimage_env_overrides() {
+        match value {
+            Some(v) => {
+                cmd.env(key, v);
+            }
+            None => {
+                cmd.env_remove(key);
+            }
+        }
+    }
     ensure_utf8_locale(cmd);
 
     let resolved_cwd = cwd
