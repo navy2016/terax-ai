@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
@@ -12,6 +12,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
     Frame, Terminal,
 };
+use serde::{Deserialize, Serialize};
 use std::{
     env,
     fs,
@@ -23,6 +24,76 @@ use std::{
 use walkdir::WalkDir;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+
+#[derive(Debug, Clone, Deserialize)]
+struct AiConfig {
+    base_url: String,
+    api_key: String,
+    model: String,
+}
+
+#[derive(Serialize)]
+struct ChatRequest {
+    model: String,
+    messages: Vec<ChatMessage>,
+    stream: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ChatMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Deserialize)]
+struct ChatResponse {
+    choices: Vec<ChatChoice>,
+}
+
+#[derive(Deserialize)]
+struct ChatChoice {
+    message: ChatMessage,
+}
+
+fn load_ai_config() -> Result<AiConfig> {
+    let home = env::var("HOME").context("HOME is not set")?;
+    let path = PathBuf::from(home).join(".config/terax-tui/config.toml");
+    let text = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let cfg: AiConfig = toml::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
+    Ok(cfg)
+}
+
+fn call_ai(prompt: &str) -> Result<String> {
+    let cfg = load_ai_config()?;
+    let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
+    let req = ChatRequest {
+        model: cfg.model,
+        stream: false,
+        messages: vec![
+            ChatMessage { role: "system".into(), content: "You are Terax TUI assistant. Be concise and practical.".into() },
+            ChatMessage { role: "user".into(), content: prompt.to_string() },
+        ],
+    };
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(120))
+        .build()?;
+    let res = client
+        .post(url)
+        .bearer_auth(cfg.api_key)
+        .json(&req)
+        .send()
+        .context("AI request failed")?;
+    let status = res.status();
+    let body = res.text().context("read AI response")?;
+    if !status.is_success() {
+        return Err(anyhow!("AI HTTP {}: {}", status, body));
+    }
+    let parsed: ChatResponse = serde_json::from_str(&body).context("parse AI response")?;
+    parsed.choices.into_iter().next()
+        .map(|c| c.message.content)
+        .ok_or_else(|| anyhow!("AI response has no choices"))
+}
+
 enum Focus {
     Files,
     Command,
@@ -51,7 +122,7 @@ impl App {
             command: String::new(),
             logs: vec![
                 "Terax TUI started.".into(),
-                "Keys: q quit | Tab focus | ↑/↓ move | Enter open/run | : command | r refresh".into(),
+                "Keys: q quit | Tab focus | ↑/↓ move | Enter open/run | : command | r refresh | ai <prompt>".into(),
             ],
             focus: Focus::Files,
             should_quit: false,
@@ -146,6 +217,20 @@ impl App {
         }
         if cmd == "pwd" {
             self.logs.push(self.cwd.display().to_string());
+            self.command.clear();
+            return;
+        }
+        if let Some(prompt) = cmd.strip_prefix("ai ") {
+            self.logs.push("AI: thinking...".into());
+            match call_ai(prompt.trim()) {
+                Ok(answer) => {
+                    self.logs.push("AI:".into());
+                    for line in answer.lines().take(200) {
+                        self.logs.push(line.to_string());
+                    }
+                }
+                Err(e) => self.logs.push(format!("AI error: {e:#}")),
+            }
             self.command.clear();
             return;
         }
