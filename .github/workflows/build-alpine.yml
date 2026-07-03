@@ -24,11 +24,12 @@ jobs:
             gcc g++ \
             file \
             patchelf \
-            pkgconf
+            pkgconf \
+            wayland-dev
 
       - name: Install Rust (stable via rustup)
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
           source "$HOME/.cargo/env"
           rustc --version
           cargo --version
@@ -45,8 +46,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             src-tauri/target
-          key: cargo-musl-${{ runner.arch }}-${{ hashFiles('src-tauri/Cargo.lock') }}
-          restore-keys: cargo-musl-${{ runner.arch }}-
+          key: cargo-musl-v2-${runner.arch}-${hashFiles('src-tauri/Cargo.lock')}
+          restore-keys: cargo-musl-v2-${runner.arch}-
 
       - name: Fix pnpm-workspace.yaml for pnpm 9
         run: |
@@ -56,8 +57,6 @@ jobs:
             cat pnpm-workspace.yaml.orig >> pnpm-workspace.yaml.tmp
             mv pnpm-workspace.yaml.tmp pnpm-workspace.yaml
           fi
-          echo "=== pnpm-workspace.yaml ==="
-          cat pnpm-workspace.yaml
 
       - name: Install frontend dependencies
         run: pnpm install --no-frozen-lockfile
@@ -69,6 +68,9 @@ jobs:
         run: |
           source "$HOME/.cargo/env"
           cd src-tauri
+          export RUSTFLAGS="-C link-self-contained=no"
+          export PKG_CONFIG_ALLOW_SYSTEM_LIBS=1
+          export PKG_CONFIG_PATH=/usr/lib/pkgconfig:/usr/lib/share/pkgconfig
           cargo build --release 2>&1
         env:
           CARGO_NET_GIT_FETCH_WITH_CLI: "true"
