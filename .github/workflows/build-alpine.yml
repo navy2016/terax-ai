@@ -11,10 +11,10 @@ jobs:
     container:
       image: alpine:3.21
     steps:
-      - name: Install build dependencies
+      - name: Install system build dependencies
         run: |
           apk add --no-cache \
-            rust cargo git curl wget bash \
+            curl wget bash git \
             nodejs npm \
             webkit2gtk-4.1-dev \
             gtk+3.0-dev \
@@ -24,13 +24,19 @@ jobs:
             gcc g++ \
             file \
             patchelf \
-            sudo
+            pkgconf
+
+      - name: Install Rust (stable via rustup)
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          source "$HOME/.cargo/env"
+          rustc --version
+          cargo --version
 
       - uses: actions/checkout@v4
 
       - name: Install pnpm
-        run: |
-          npm install -g pnpm@9
+        run: npm install -g pnpm@9
 
       - name: Restore cargo cache
         uses: actions/cache@v4
@@ -46,7 +52,7 @@ jobs:
         run: |
           if grep -q "minimumReleaseAge" pnpm-workspace.yaml && ! grep -q "^packages:" pnpm-workspace.yaml; then
             cp pnpm-workspace.yaml pnpm-workspace.yaml.orig
-            echo "packages: []" > pnpm-workspace.yaml.tmp
+            printf 'packages: []\n' > pnpm-workspace.yaml.tmp
             cat pnpm-workspace.yaml.orig >> pnpm-workspace.yaml.tmp
             mv pnpm-workspace.yaml.tmp pnpm-workspace.yaml
           fi
@@ -59,11 +65,9 @@ jobs:
       - name: Build frontend
         run: npx vite build
 
-      - name: Install tauri-cli
-        run: cargo install tauri-cli --version "^2.0.0" || cargo install tauri-cli
-
-      - name: Build Tauri app
+      - name: Build Tauri app (cargo build --release)
         run: |
+          source "$HOME/.cargo/env"
           cd src-tauri
           cargo build --release 2>&1
         env:
@@ -73,8 +77,7 @@ jobs:
         run: |
           echo "=== Built binary ==="
           find src-tauri/target/release -maxdepth 1 -type f -name "terax" -exec file {} \;
-          ls -la src-tauri/target/release/terax 2>&1 || echo "terax binary not found, listing release dir:"
-          ls -la src-tauri/target/release/ | head -30
+          ls -la src-tauri/target/release/terax 2>&1
 
       - name: Upload build artifacts
         if: always()
