@@ -1,4 +1,4 @@
-name: Build Terax (Alpine musl)
+name: Build Terax (Alpine aarch64 musl)
 
 on:
   push:
@@ -6,91 +6,72 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-alpine:
-    runs-on: ubuntu-22.04
-    container:
-      image: alpine:3.21
-    env:
-      RUSTFLAGS: "-C target-feature=-crt-static -C link-arg=-L/usr/lib -C link-arg=-lunwind"
-      LIBRARY_PATH: "/usr/lib"
-      PKG_CONFIG_PATH: "/usr/lib/pkgconfig:/usr/lib/share/pkgconfig"
-      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+  build-alpine-aarch64:
+    runs-on: ubuntu-24.04-arm
     steps:
-      - name: Install system build dependencies
-        run: |
-          apk add --no-cache \
-            curl wget bash git \
-            nodejs npm \
-            webkit2gtk-4.1-dev \
-            gtk+3.0-dev \
-            librsvg-dev \
-            openssl-dev \
-            musl-dev musl \
-            gcc g++ \
-            file \
-            patchelf \
-            pkgconf \
-            wayland-dev \
-            libunwind-dev
-
-      - name: Install Rust (stable via rustup)
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
-          source "$HOME/.cargo/env"
-          rustc --version
-          cargo --version
-          # Show where libunwind is
-          find / -maxdepth 4 -name "libunwind*" -type f 2>&1 || true
-
       - uses: actions/checkout@v4
 
-      - name: Install pnpm
-        run: npm install -g pnpm@9
-
-      - name: Restore cargo cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src-tauri/target
-          key: cargo-musl-v5-${runner.arch}-${hashFiles('src-tauri/Cargo.lock')}
-          restore-keys: cargo-musl-v5-${runner.arch}-
-
-      - name: Fix pnpm-workspace.yaml for pnpm 9
+      - name: Build inside Alpine aarch64 container
+        shell: bash
         run: |
-          if grep -q "minimumReleaseAge" pnpm-workspace.yaml && ! grep -q "^packages:" pnpm-workspace.yaml; then
-            cp pnpm-workspace.yaml pnpm-workspace.yaml.orig
-            printf 'packages: []\n' > pnpm-workspace.yaml.tmp
-            cat pnpm-workspace.yaml.orig >> pnpm-workspace.yaml.tmp
-            mv pnpm-workspace.yaml.tmp pnpm-workspace.yaml
-          fi
+          set -euxo pipefail
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            alpine:3.21 \
+            sh -lc '
+              set -eux
+              apk add --no-cache \
+                curl wget bash git \
+                nodejs npm \
+                webkit2gtk-4.1-dev \
+                gtk+3.0-dev \
+                librsvg-dev \
+                openssl-dev \
+                musl-dev musl \
+                gcc g++ \
+                file \
+                patchelf \
+                pkgconf \
+                wayland-dev \
+                libunwind-dev
 
-      - name: Install frontend dependencies
-        run: pnpm install --no-frozen-lockfile
+              curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+              source "$HOME/.cargo/env"
+              rustc --version
+              cargo --version
+              uname -m
 
-      - name: Build frontend
-        run: npx vite build
+              npm install -g pnpm@9
 
-      - name: Build Tauri app (cargo build --release)
-        run: |
-          source "$HOME/.cargo/env"
-          cd src-tauri
-          cargo build --release 2>&1
+              if grep -q "minimumReleaseAge" pnpm-workspace.yaml && ! grep -q "^packages:" pnpm-workspace.yaml; then
+                cp pnpm-workspace.yaml pnpm-workspace.yaml.orig
+                printf "packages: []\n" > pnpm-workspace.yaml.tmp
+                cat pnpm-workspace.yaml.orig >> pnpm-workspace.yaml.tmp
+                mv pnpm-workspace.yaml.tmp pnpm-workspace.yaml
+              fi
 
-      - name: Verify binary
-        run: |
-          echo "=== Built binary ==="
-          find src-tauri/target/release -maxdepth 1 -type f -name "terax" -exec file {} \;
-          ls -la src-tauri/target/release/terax 2>&1
+              pnpm install --no-frozen-lockfile
+              npx vite build
+
+              export RUSTFLAGS="-C target-feature=-crt-static -C link-arg=-L/usr/lib -C link-arg=-lunwind"
+              export LIBRARY_PATH="/usr/lib"
+              export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib/share/pkgconfig"
+              export CARGO_NET_GIT_FETCH_WITH_CLI="true"
+              cd src-tauri
+              cargo build --release
+              cd ..
+
+              file src-tauri/target/release/terax
+              chmod 755 src-tauri/target/release/terax
+            '
 
       - name: Upload build artifacts
-        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: terax-alpine-musl
+          name: terax-alpine-aarch64-musl
           path: |
             src-tauri/target/release/terax
             dist/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 7
