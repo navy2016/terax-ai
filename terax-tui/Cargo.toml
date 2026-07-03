@@ -1,6 +1,6 @@
 [package]
 name = "terax-tui"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 description = "Terminal UI edition of Terax for musl/Alpine environments"
 license = "Apache-2.0"

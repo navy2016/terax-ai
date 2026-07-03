@@ -13,6 +13,9 @@ fn run_git(root: &Path, args: &[&str], max: usize) -> Result<String> {
     let mut s = String::new();
     if !out.stdout.is_empty() { s.push_str(&String::from_utf8_lossy(&out.stdout)); }
     if !out.stderr.is_empty() { s.push_str(&String::from_utf8_lossy(&out.stderr)); }
+    if !out.status.success() {
+        anyhow::bail!("git {} failed: {}", args.join(" "), s.trim());
+    }
     if s.len() > max { s.truncate(max); s.push_str("\n[truncated]"); }
     Ok(s)
 }
