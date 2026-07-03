@@ -11,13 +11,27 @@ jobs:
     container:
       image: alpine:3.21
     env:
-      RUSTFLAGS: "-C link-self-contained=no -C link-arg=-L/usr/lib -C link-arg=-lunwind"
+      RUSTFLAGS: "-C target-feature=-crt-static -C link-arg=-L/usr/lib -C link-arg=-lunwind"
       LIBRARY_PATH: "/usr/lib"
+      PKG_CONFIG_PATH: "/usr/lib/pkgconfig:/usr/lib/share/pkgconfig"
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
     steps:
       - name: Install system build dependencies
         run: |
-          apk add --no-cache curl wget bash git nodejs npm webkit2gtk-4.1-dev gtk+3.0-dev librsvg-dev openssl-dev musl-dev gcc g++ file patchelf pkgconf wayland-dev libunwind-dev
+          apk add --no-cache \
+            curl wget bash git \
+            nodejs npm \
+            webkit2gtk-4.1-dev \
+            gtk+3.0-dev \
+            librsvg-dev \
+            openssl-dev \
+            musl-dev musl \
+            gcc g++ \
+            file \
+            patchelf \
+            pkgconf \
+            wayland-dev \
+            libunwind-dev
 
       - name: Install Rust (stable via rustup)
         run: |
@@ -25,6 +39,8 @@ jobs:
           source "$HOME/.cargo/env"
           rustc --version
           cargo --version
+          # Show where libunwind is
+          find / -maxdepth 4 -name "libunwind*" -type f 2>&1 || true
 
       - uses: actions/checkout@v4
 
@@ -38,8 +54,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             src-tauri/target
-          key: cargo-musl-v4-${runner.arch}-${hashFiles('src-tauri/Cargo.lock')}
-          restore-keys: cargo-musl-v4-${runner.arch}-
+          key: cargo-musl-v5-${runner.arch}-${hashFiles('src-tauri/Cargo.lock')}
+          restore-keys: cargo-musl-v5-${runner.arch}-
 
       - name: Fix pnpm-workspace.yaml for pnpm 9
         run: |
