@@ -25,7 +25,8 @@ jobs:
             file \
             patchelf \
             pkgconf \
-            wayland-dev
+            wayland-dev \
+            libunwind-dev
 
       - name: Install Rust (stable via rustup)
         run: |
@@ -46,8 +47,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             src-tauri/target
-          key: cargo-musl-v2-${runner.arch}-${hashFiles('src-tauri/Cargo.lock')}
-          restore-keys: cargo-musl-v2-${runner.arch}-
+          key: cargo-musl-v3-${{runner.arch}}-${{hashFiles('src-tauri/Cargo.lock')}}
+          restore-keys: cargo-musl-v3-${{runner.arch}}-
 
       - name: Fix pnpm-workspace.yaml for pnpm 9
         run: |
@@ -68,9 +69,8 @@ jobs:
         run: |
           source "$HOME/.cargo/env"
           cd src-tauri
-          export RUSTFLAGS="-C link-self-contained=no"
-          export PKG_CONFIG_ALLOW_SYSTEM_LIBS=1
-          export PKG_CONFIG_PATH=/usr/lib/pkgconfig:/usr/lib/share/pkgconfig
+          # Use system linker with libunwind, disable self-contained
+          export RUSTFLAGS="-C link-self-contained=no -C link-arg=-lunwind"
           cargo build --release 2>&1
         env:
           CARGO_NET_GIT_FETCH_WITH_CLI: "true"
