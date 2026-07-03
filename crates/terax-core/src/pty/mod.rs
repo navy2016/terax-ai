@@ -1,7 +1,7 @@
 
 use anyhow::{Context, Result};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
-use std::{io::{Read, Write}, sync::mpsc::{self, Receiver}, thread};
+use std::{io::{Read, Write}, path::PathBuf, sync::mpsc::{self, Receiver}, thread};
 
 pub struct PtySession {
     writer: Box<dyn Write + Send>,
@@ -11,11 +11,12 @@ pub struct PtySession {
 }
 
 impl PtySession {
-    pub fn spawn(shell: Option<String>, cols: u16, rows: u16) -> Result<Self> {
+    pub fn spawn(shell: Option<String>, cols: u16, rows: u16, cwd: Option<PathBuf>) -> Result<Self> {
         let shell = shell.unwrap_or_else(|| std::env::var("SHELL").unwrap_or_else(|_| "sh".into()));
         let pty_system = native_pty_system();
         let pair = pty_system.openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })?;
-        let cmd = CommandBuilder::new(shell);
+        let mut cmd = CommandBuilder::new(shell);
+        if let Some(cwd) = cwd { cmd.cwd(cwd); }
         let child = pair.slave.spawn_command(cmd).context("spawn shell in PTY")?;
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().context("clone PTY reader")?;
