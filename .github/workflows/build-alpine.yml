@@ -1,0 +1,88 @@
+name: Build Terax (Alpine musl)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-alpine:
+    runs-on: ubuntu-22.04
+    container:
+      image: alpine:3.21
+    steps:
+      - name: Install build dependencies
+        run: |
+          apk add --no-cache \
+            rust cargo git curl wget bash \
+            nodejs npm \
+            webkit2gtk-4.1-dev \
+            gtk+3.0-dev \
+            librsvg-dev \
+            openssl-dev \
+            musl-dev \
+            gcc g++ \
+            file \
+            patchelf \
+            sudo
+
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        run: |
+          npm install -g pnpm@9
+
+      - name: Restore cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: cargo-musl-${{ runner.arch }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: cargo-musl-${{ runner.arch }}-
+
+      - name: Fix pnpm-workspace.yaml for pnpm 9
+        run: |
+          if grep -q "minimumReleaseAge" pnpm-workspace.yaml && ! grep -q "^packages:" pnpm-workspace.yaml; then
+            cp pnpm-workspace.yaml pnpm-workspace.yaml.orig
+            echo "packages: []" > pnpm-workspace.yaml.tmp
+            cat pnpm-workspace.yaml.orig >> pnpm-workspace.yaml.tmp
+            mv pnpm-workspace.yaml.tmp pnpm-workspace.yaml
+          fi
+          echo "=== pnpm-workspace.yaml ==="
+          cat pnpm-workspace.yaml
+
+      - name: Install frontend dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build frontend
+        run: npx vite build
+
+      - name: Install tauri-cli
+        run: cargo install tauri-cli --version "^2.0.0" || cargo install tauri-cli
+
+      - name: Build Tauri app
+        run: |
+          cd src-tauri
+          cargo build --release 2>&1
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+
+      - name: Verify binary
+        run: |
+          echo "=== Built binary ==="
+          find src-tauri/target/release -maxdepth 1 -type f -name "terax" -exec file {} \;
+          ls -la src-tauri/target/release/terax 2>&1 || echo "terax binary not found, listing release dir:"
+          ls -la src-tauri/target/release/ | head -30
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terax-alpine-musl
+          path: |
+            src-tauri/target/release/terax
+            dist/
+          if-no-files-found: warn
+          retention-days: 7
