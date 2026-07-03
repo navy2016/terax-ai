@@ -23,8 +23,6 @@ use std::{
 };
 use walkdir::WalkDir;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-
 #[derive(Debug, Clone, Deserialize)]
 struct AiConfig {
     base_url: String,
@@ -94,6 +92,7 @@ fn call_ai(prompt: &str) -> Result<String> {
         .ok_or_else(|| anyhow!("AI response has no choices"))
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Focus {
     Files,
     Command,
