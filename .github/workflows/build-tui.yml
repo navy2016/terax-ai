@@ -1,0 +1,44 @@
+name: Build Terax TUI (Alpine aarch64 musl)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "terax-tui/**"
+      - ".github/workflows/build-tui.yml"
+  workflow_dispatch:
+
+jobs:
+  build-terax-tui:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build terax-tui inside Alpine aarch64 container
+        shell: bash
+        run: |
+          set -euxo pipefail
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work/terax-tui \
+            alpine:3.21 \
+            sh -lc '
+              set -eux
+              apk add --no-cache curl bash git musl-dev gcc g++ file
+              curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+              source "$HOME/.cargo/env"
+              rustc --version
+              cargo --version
+              uname -m
+              cargo build --release
+              file target/release/terax-tui
+              chmod 755 target/release/terax-tui
+            '
+
+      - name: Upload terax-tui artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: terax-tui-alpine-aarch64-musl
+          path: terax-tui/target/release/terax-tui
+          if-no-files-found: error
+          retention-days: 14
