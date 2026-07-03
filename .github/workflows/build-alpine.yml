@@ -10,23 +10,14 @@ jobs:
     runs-on: ubuntu-22.04
     container:
       image: alpine:3.21
+    env:
+      RUSTFLAGS: "-C link-self-contained=no -C link-arg=-L/usr/lib -C link-arg=-lunwind"
+      LIBRARY_PATH: "/usr/lib"
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
     steps:
       - name: Install system build dependencies
         run: |
-          apk add --no-cache \
-            curl wget bash git \
-            nodejs npm \
-            webkit2gtk-4.1-dev \
-            gtk+3.0-dev \
-            librsvg-dev \
-            openssl-dev \
-            musl-dev \
-            gcc g++ \
-            file \
-            patchelf \
-            pkgconf \
-            wayland-dev \
-            libunwind-dev
+          apk add --no-cache curl wget bash git nodejs npm webkit2gtk-4.1-dev gtk+3.0-dev librsvg-dev openssl-dev musl-dev gcc g++ file patchelf pkgconf wayland-dev libunwind-dev
 
       - name: Install Rust (stable via rustup)
         run: |
@@ -47,8 +38,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             src-tauri/target
-          key: cargo-musl-v3-${{runner.arch}}-${{hashFiles('src-tauri/Cargo.lock')}}
-          restore-keys: cargo-musl-v3-${{runner.arch}}-
+          key: cargo-musl-v4-${runner.arch}-${hashFiles('src-tauri/Cargo.lock')}
+          restore-keys: cargo-musl-v4-${runner.arch}-
 
       - name: Fix pnpm-workspace.yaml for pnpm 9
         run: |
@@ -69,11 +60,7 @@ jobs:
         run: |
           source "$HOME/.cargo/env"
           cd src-tauri
-          # Use system linker with libunwind, disable self-contained
-          export RUSTFLAGS="-C link-self-contained=no -C link-arg=-lunwind"
           cargo build --release 2>&1
-        env:
-          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
       - name: Verify binary
         run: |
