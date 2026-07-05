@@ -14,10 +14,10 @@ use walkdir::WalkDir;
 struct App {
     cwd: PathBuf, entries: Vec<PathBuf>, selected: usize, preview: String,
     command: String, logs: Vec<String>, focus: Focus, view: View, should_quit: bool,
-    chat: Vec<ChatMessage>, ai_busy: bool, ai_rx: Option<Receiver<AiEvent>>, status: String, git_entries: Vec<GitEntry>, git_selected: usize, git_diff: String, pty: Option<PtySession>, terminal_input: String, terminal_lines: Vec<String>, editor_path: Option<PathBuf>, editor_lines: Vec<String>, editor_row: usize, editor_col: usize, editor_insert: bool, editor_dirty: bool, pending_tool: Option<ToolRequest>, pending_edit: Option<PendingEdit>, pending_buffer_edit: Option<PendingBufferEdit>,
+    chat: Vec<ChatMessage>, ai_busy: bool, ai_rx: Option<Receiver<AiEvent>>, status: String, git_entries: Vec<GitEntry>, git_selected: usize, git_diff: String, pty: Option<PtySession>, terminal_input: String, terminal_lines: Vec<String>, editor_path: Option<PathBuf>, editor_lines: Vec<String>, editor_row: usize, editor_col: usize, editor_insert: bool, editor_dirty: bool, pending_tool: Option<ToolRequest>, pending_edit: Option<PendingEdit>, pending_buffer_edit: Option<PendingBufferEdit>, agent_task: Option<String>,
 }
 impl App {
-    fn new() -> Result<Self> { let cwd=env::current_dir()?; let mut a=Self{cwd,entries:vec![],selected:0,preview:String::new(),command:String::new(),logs:vec!["Terax TUI v1.1-agent".into(),"agent <task> | tool JSON | y/n approval | Ctrl+D Diff".into()],focus:Focus::Files,view:View::Workspace,should_quit:false,chat:vec![ai::system("You are Terax TUI assistant. Be concise, practical, and code-aware.")],ai_busy:false,ai_rx:None,status:"AI idle".into(),git_entries:vec![],git_selected:0,git_diff:String::new(),pty:None,terminal_input:String::new(),terminal_lines:vec!["Terminal not started. Press Ctrl+T.".into()],editor_path:None,editor_lines:vec!["No file open. Select a file and press Enter, or Ctrl+E.".into()],editor_row:0,editor_col:0,editor_insert:false,editor_dirty:false,pending_tool:None,pending_edit:None,pending_buffer_edit:None}; a.refresh()?; a.refresh_git(); Ok(a) }
+    fn new() -> Result<Self> { let cwd=env::current_dir()?; let mut a=Self{cwd,entries:vec![],selected:0,preview:String::new(),command:String::new(),logs:vec!["Terax TUI v1.2-agent".into(),"agent loop | approve tool -> final answer | y/n".into()],focus:Focus::Files,view:View::Workspace,should_quit:false,chat:vec![ai::system("You are Terax TUI assistant. Be concise, practical, and code-aware.")],ai_busy:false,ai_rx:None,status:"AI idle".into(),git_entries:vec![],git_selected:0,git_diff:String::new(),pty:None,terminal_input:String::new(),terminal_lines:vec!["Terminal not started. Press Ctrl+T.".into()],editor_path:None,editor_lines:vec!["No file open. Select a file and press Enter, or Ctrl+E.".into()],editor_row:0,editor_col:0,editor_insert:false,editor_dirty:false,pending_tool:None,pending_edit:None,pending_buffer_edit:None,agent_task:None}; a.refresh()?; a.refresh_git(); Ok(a) }
     fn refresh(&mut self)->Result<()> { self.entries.clear(); self.entries.push(self.cwd.join("..")); let mut dirs=vec![]; let mut files=vec![]; for e in fs::read_dir(&self.cwd)? { let p=e?.path(); let name=p.file_name().and_then(|s|s.to_str()).unwrap_or(""); if name.starts_with('.') && name != ".github" {continue} if p.is_dir(){dirs.push(p)}else{files.push(p)} } dirs.sort(); files.sort(); self.entries.extend(dirs); self.entries.extend(files); self.selected=self.selected.min(self.entries.len().saturating_sub(1)); self.update_preview(); Ok(()) }
     fn selected_path(&self)->Option<&Path>{self.entries.get(self.selected).map(|p|p.as_path())}
     fn update_preview(&mut self){ let Some(p)=self.selected_path() else {self.preview.clear(); return}; if p.is_dir(){let c=WalkDir::new(p).max_depth(2).into_iter().filter_map(Result::ok).count(); self.preview=format!("Directory: {}\nEntries within depth 2: {}",p.display(),c); return} match terax_core::fs::read_text_limited(p,256*1024){Ok(s)=>self.preview=s.lines().take(300).collect::<Vec<_>>().join("\n"),Err(e)=>self.preview=format!("Preview error: {e:#}")} }
@@ -43,6 +43,7 @@ impl App {
 
 
     fn ask_agent(&mut self, task: String){
+        self.agent_task=Some(task.clone());
         if self.ai_busy { self.logs.push("AI busy".into()); return; }
         let system = r#"You are a tool-calling coding agent inside Terax TUI. Return ONLY compact JSON, no markdown. Allowed forms:
 {"answer":"short answer"}
@@ -56,6 +57,15 @@ Choose exactly one."#;
         let (tx,rx)=mpsc::channel(); self.ai_rx=Some(rx); self.ai_busy=true; self.status="agent thinking...".into();
         thread::spawn(move||{ let _=tx.send(match ai::chat(msgs){Ok(a)=>AiEvent::Agent(a),Err(e)=>AiEvent::Error(format!("{e:#}"))}); });
     }
+
+    fn continue_agent_with_tool_result(&mut self, tool_name:&str, result:String){
+        let task=self.agent_task.clone().unwrap_or_else(||"Continue from tool result".into());
+        let prompt=format!("Original task: {}\n\nTool `{}` result:\n{}\n\nNow provide the final answer to the user. Be concise and practical.", task, tool_name, result);
+        let msgs=vec![ai::system("You are Terax TUI agent. Use the tool result to answer the original task. Return plain text, not JSON."), ai::user(prompt)];
+        let (tx,rx)=mpsc::channel(); self.ai_rx=Some(rx); self.ai_busy=true; self.status="agent finalizing...".into();
+        thread::spawn(move||{ let _=tx.send(match ai::chat(msgs){Ok(a)=>AiEvent::Done(a),Err(e)=>AiEvent::Error(format!("{e:#}"))}); });
+    }
+
     fn handle_agent_response(&mut self, text: String){
         let trimmed=text.trim().trim_matches('`').trim().to_string();
         let parsed:Result<serde_json::Value,_>=serde_json::from_str(&trimmed);
@@ -154,22 +164,22 @@ Choose exactly one."#;
             ToolKind::TerminalSend => {
                 self.ensure_pty();
                 if let Some(p)=self.pty.as_mut(){ let _=p.write(&(req.payload.clone()+"\n")); }
-                self.logs.push(format!("approved tool: {}", req.summary));
+                self.logs.push(format!("approved tool: {}", req.summary)); self.logs.push("terminal_send executed; use /terminal-tail or agent follow-up for analysis".into());
             }
             ToolKind::ReadFile => {
                 let path=self.cwd.join(&req.payload);
                 match terax_core::fs::read_text_limited(&path, 64*1024){
-                    Ok(content)=>{self.logs.push(format!("read_file {}: {} bytes", path.display(), content.len())); self.chat.push(ai::assistant(format!("Tool read_file {}:\n{}", path.display(), content)));}
+                    Ok(content)=>{self.logs.push(format!("read_file {}: {} bytes", path.display(), content.len())); self.chat.push(ai::assistant(format!("Tool read_file {}:\n{}", path.display(), content))); self.continue_agent_with_tool_result("read_file", content);}
                     Err(e)=>self.logs.push(format!("read_file error: {e:#}")),
                 }
             }
             ToolKind::GitStatus => {
                 let out=terax_core::git::status(&self.cwd).unwrap_or_else(|e|format!("git status error: {e:#}"));
-                self.logs.push("git_status done".into()); self.chat.push(ai::assistant(format!("Tool git_status:\n{}", out)));
+                self.logs.push("git_status done".into()); self.chat.push(ai::assistant(format!("Tool git_status:\n{}", out))); self.continue_agent_with_tool_result("git_status", out);
             }
             ToolKind::GitDiff => {
                 let out=terax_core::git::diff(&self.cwd).unwrap_or_else(|e|format!("git diff error: {e:#}"));
-                self.logs.push("git_diff done".into()); self.chat.push(ai::assistant(format!("Tool git_diff:\n{}", out)));
+                self.logs.push("git_diff done".into()); self.chat.push(ai::assistant(format!("Tool git_diff:\n{}", out))); self.continue_agent_with_tool_result("git_diff", out);
             }
             _ => self.logs.push(format!("tool not executable yet: {:?}", req.kind)),
         }
