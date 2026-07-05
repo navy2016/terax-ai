@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use crossterm::{event::{self, Event, KeyCode, KeyEvent, KeyModifiers}, execute, terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen, EnableBracketedPaste, DisableBracketedPaste}};
+use crossterm::{event::{self, Event, KeyCode, KeyEvent, KeyModifiers, EnableBracketedPaste, DisableBracketedPaste}, execute, terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen}};
 use ratatui::{backend::CrosstermBackend, layout::{Constraint, Direction, Layout, Rect}, style::{Color, Modifier, Style}, text::{Line, Span}, widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap}, Frame, Terminal};
 use std::{env, fs, io::{self, Stdout}, path::{Path, PathBuf}, process::Command, sync::mpsc::{self, Receiver}, thread, time::Duration};
 use terax_core::{ai::{self, ChatMessage}, config::Config, git::GitEntry, pty::PtySession, tools::{ToolKind, ToolRequest, ToolRisk}};
