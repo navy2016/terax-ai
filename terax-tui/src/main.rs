@@ -14,10 +14,10 @@ use walkdir::WalkDir;
 struct App {
     cwd: PathBuf, entries: Vec<PathBuf>, selected: usize, preview: String,
     command: String, logs: Vec<String>, focus: Focus, view: View, should_quit: bool,
-    chat: Vec<ChatMessage>, ai_busy: bool, ai_rx: Option<Receiver<AiEvent>>, status: String, git_entries: Vec<GitEntry>, git_selected: usize, git_diff: String, pty: Option<PtySession>, terminal_input: String, terminal_lines: Vec<String>, editor_path: Option<PathBuf>, editor_lines: Vec<String>, editor_row: usize, editor_col: usize, editor_insert: bool, editor_dirty: bool, pending_tool: Option<ToolRequest>, pending_edit: Option<PendingEdit>, pending_buffer_edit: Option<PendingBufferEdit>, agent_task: Option<String>,
+    chat: Vec<ChatMessage>, ai_busy: bool, ai_rx: Option<Receiver<AiEvent>>, status: String, git_entries: Vec<GitEntry>, git_selected: usize, git_diff: String, pty: Option<PtySession>, terminal_input: String, terminal_lines: Vec<String>, editor_path: Option<PathBuf>, editor_lines: Vec<String>, editor_row: usize, editor_col: usize, editor_insert: bool, editor_dirty: bool, pending_tool: Option<ToolRequest>, pending_edit: Option<PendingEdit>, pending_buffer_edit: Option<PendingBufferEdit>, agent_task: Option<String>, terminal_agent_wait: Option<u8>,
 }
 impl App {
-    fn new() -> Result<Self> { let cwd=env::current_dir()?; let mut a=Self{cwd,entries:vec![],selected:0,preview:String::new(),command:String::new(),logs:vec!["Terax TUI v1.2-agent".into(),"agent loop | approve tool -> final answer | y/n".into()],focus:Focus::Files,view:View::Workspace,should_quit:false,chat:vec![ai::system("You are Terax TUI assistant. Be concise, practical, and code-aware.")],ai_busy:false,ai_rx:None,status:"AI idle".into(),git_entries:vec![],git_selected:0,git_diff:String::new(),pty:None,terminal_input:String::new(),terminal_lines:vec!["Terminal not started. Press Ctrl+T.".into()],editor_path:None,editor_lines:vec!["No file open. Select a file and press Enter, or Ctrl+E.".into()],editor_row:0,editor_col:0,editor_insert:false,editor_dirty:false,pending_tool:None,pending_edit:None,pending_buffer_edit:None,agent_task:None}; a.refresh()?; a.refresh_git(); Ok(a) }
+    fn new() -> Result<Self> { let cwd=env::current_dir()?; let mut a=Self{cwd,entries:vec![],selected:0,preview:String::new(),command:String::new(),logs:vec!["Terax TUI v1.3-agent".into(),"agent loop + terminal output finalization | y/n".into()],focus:Focus::Files,view:View::Workspace,should_quit:false,chat:vec![ai::system("You are Terax TUI assistant. Be concise, practical, and code-aware.")],ai_busy:false,ai_rx:None,status:"AI idle".into(),git_entries:vec![],git_selected:0,git_diff:String::new(),pty:None,terminal_input:String::new(),terminal_lines:vec!["Terminal not started. Press Ctrl+T.".into()],editor_path:None,editor_lines:vec!["No file open. Select a file and press Enter, or Ctrl+E.".into()],editor_row:0,editor_col:0,editor_insert:false,editor_dirty:false,pending_tool:None,pending_edit:None,pending_buffer_edit:None,agent_task:None,terminal_agent_wait:None}; a.refresh()?; a.refresh_git(); Ok(a) }
     fn refresh(&mut self)->Result<()> { self.entries.clear(); self.entries.push(self.cwd.join("..")); let mut dirs=vec![]; let mut files=vec![]; for e in fs::read_dir(&self.cwd)? { let p=e?.path(); let name=p.file_name().and_then(|s|s.to_str()).unwrap_or(""); if name.starts_with('.') && name != ".github" {continue} if p.is_dir(){dirs.push(p)}else{files.push(p)} } dirs.sort(); files.sort(); self.entries.extend(dirs); self.entries.extend(files); self.selected=self.selected.min(self.entries.len().saturating_sub(1)); self.update_preview(); Ok(()) }
     fn selected_path(&self)->Option<&Path>{self.entries.get(self.selected).map(|p|p.as_path())}
     fn update_preview(&mut self){ let Some(p)=self.selected_path() else {self.preview.clear(); return}; if p.is_dir(){let c=WalkDir::new(p).max_depth(2).into_iter().filter_map(Result::ok).count(); self.preview=format!("Directory: {}\nEntries within depth 2: {}",p.display(),c); return} match terax_core::fs::read_text_limited(p,256*1024){Ok(s)=>self.preview=s.lines().take(300).collect::<Vec<_>>().join("\n"),Err(e)=>self.preview=format!("Preview error: {e:#}")} }
@@ -164,7 +164,7 @@ Choose exactly one."#;
             ToolKind::TerminalSend => {
                 self.ensure_pty();
                 if let Some(p)=self.pty.as_mut(){ let _=p.write(&(req.payload.clone()+"\n")); }
-                self.logs.push(format!("approved tool: {}", req.summary)); self.logs.push("terminal_send executed; use /terminal-tail or agent follow-up for analysis".into());
+                self.logs.push(format!("approved tool: {}", req.summary)); self.logs.push("terminal_send executed; collecting output for agent...".into()); self.terminal_agent_wait=Some(12);
             }
             ToolKind::ReadFile => {
                 let path=self.cwd.join(&req.payload);
@@ -232,6 +232,15 @@ Choose exactly one."#;
                 }
             }
             if self.terminal_lines.len()>1000{ let n=self.terminal_lines.len()-1000; self.terminal_lines.drain(0..n); }
+        }
+        if let Some(wait)=self.terminal_agent_wait {
+            if wait == 0 {
+                self.terminal_agent_wait=None;
+                let tail=self.terminal_tail(120);
+                if !tail.trim().is_empty(){ self.continue_agent_with_tool_result("terminal_send", tail); }
+            } else {
+                self.terminal_agent_wait=Some(wait.saturating_sub(1));
+            }
         }
     }
     fn terminal_tail(&self, n:usize)->String{
