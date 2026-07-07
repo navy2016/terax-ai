@@ -52,3 +52,12 @@ pub fn stage(root: &Path, path: &str) -> Result<String> {
 pub fn unstage(root: &Path, path: &str) -> Result<String> {
     run_git(root, &["restore", "--staged", "--", path], 32 * 1024)
 }
+
+pub fn branch(root: &Path) -> Result<String> { run_git(root, &["branch", "--show-current"], 8 * 1024).map(|s| s.trim().to_string()) }
+pub fn remote(root: &Path) -> Result<String> { run_git(root, &["remote", "-v"], 16 * 1024) }
+pub fn set_remote_origin(root: &Path, url: &str) -> Result<String> {
+    let has = Command::new("git").args(["remote", "get-url", "origin"]).current_dir(root).output().map(|o| o.status.success()).unwrap_or(false);
+    if has { run_git(root, &["remote", "set-url", "origin", url], 32 * 1024) } else { run_git(root, &["remote", "add", "origin", url], 32 * 1024) }
+}
+pub fn commit(root: &Path, message: &str) -> Result<String> { run_git(root, &["commit", "-m", message], 128 * 1024) }
+pub fn clone_repo(parent: &Path, url: &str) -> Result<String> { run_git(parent, &["clone", url], 256 * 1024) }
