@@ -6,6 +6,7 @@ use std::{env, fs, path::PathBuf};
 pub struct Config {
     pub base_url: Option<String>,
     pub api_key: Option<String>,
+    pub api_key_env: Option<String>,
     pub model: Option<String>,
     pub default_provider: Option<String>,
     pub providers: Option<std::collections::BTreeMap<String, ProviderConfig>>,
@@ -52,9 +53,14 @@ impl Config {
             };
             return Ok(ResolvedProvider { base_url: p.base_url.clone(), api_key, model: p.model.clone() });
         }
+        let api_key = match (&self.api_key_env, &self.api_key) {
+            (Some(env_name), _) => env::var(env_name).with_context(|| format!("env {env_name} is not set"))?,
+            (None, Some(v)) => v.clone(),
+            _ => anyhow::bail!("api_key or api_key_env missing"),
+        };
         Ok(ResolvedProvider {
             base_url: self.base_url.clone().context("base_url missing")?,
-            api_key: self.api_key.clone().context("api_key missing")?,
+            api_key,
             model: self.model.clone().context("model missing")?,
         })
     }
